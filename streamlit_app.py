@@ -1,46 +1,88 @@
-# Import python packages
+
 import streamlit as st
-from snowflake.snowpark.context import get_active_session
-from snowflake.snowpark.functions import col
+import requests
+import snowflake.connector
 
-# Write directly to the app
-st.title(f":cup_with_straw: Customize Your Smoothie :cup_with_straw:")
-st.write(
-  """choose your fruits you want in your custom smoothie.
-  """
+st.set_page_config(
+    page_title="Melanie's Smoothies",
+    page_icon="🥤",
+    layout="centered"
 )
 
-name_on_order = st.text_input('Name on Smoothie:')
-st.write('Name on your Smoothie will be:', name_on_order)
+st.title("🥤 Customize Your Smoothie")
+st.write("Choose up to five fruits for your custom smoothie.")
 
-session = get_active_session()
-my_dataframe = session.table("smoothies.public.fruit_options").select(col('fruit_name'))
-# st.dataframe(data=my_dataframe, use_container_width=True)
-ingredients_list = st.multiselect(
-    'Choose upto 5 Ingredients:', my_dataframe, 
-    max_selections=5
-)
+# Input fields
+name_on_order = st.text_input("Name on Smoothie:")
 
-if ingredients_list:
-    ingredients_string = ''
+# Connect to Snowflake
+@st.cache_resource
+def get_snowflake_connection():
+    return snowflake.connector.connect(
+        user=st.secrets["snowflake"]["user"],
+        password=st.secrets["snowflake"]["password"],
+        account=st.secrets["snowflake"]["account"],
+        warehouse=st.secrets["snowflake"]["warehouse"],
+        database="SMOOTHIES",
+        schema="PUBLIC",
+        role=st.secrets["snowflake"]["role"]
+    )
 
-    for fruit_chosen in ingredients_list:
-        ingredients_string += fruit_chosen + ' '
+try:
+    conn = get_snowflake_connection()
 
-    st.write(ingredients_string)
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT FRUIT_NAME
+        FROM FRUIT_OPTIONS
+        ORDER BY FRUIT_NAME
+    """)
 
-    my_insert_stmt = """ insert into smoothies.public.orders(ingredients,name_on_order)
-                    values ('""" + ingredients_string + """','"""+name_on_order+"""')"""
+    fruits = [row[0] for row in cursor.fetchall()]
 
-    # st.write(my_insert_stmt)
-    # st.stop()
-    time_to_insert = st.button('Submit Order')
-    
-    if time_to_insert:
-        session.sql(my_insert_stmt).collect()
-        st.success(f'Your Smoothie is ordered, {name_on_order}!', icon="✅")
+    ingredients_list = st.multiselect(
+        "Choose up to 5 ingredients:",
+        options=fruits,
+        max_selections=5
+    )
 
+    if ingredients_list:
+        st.write("Selected ingredients:", ", ".join(ingredients_list))
 
-import requests  
-smoothiefroot_response = requests.get("[https://my.smoothiefroot.com/api/fruit/watermelon](https://my.smoothiefroot.com/api/fruit/watermelon)")  
-st.text(smoothiefroot_response)
+    if st.button("Submit Order"):
+        if not name_on_order.strip():
+            st.warning("Please enter your name.")
+        elif not ingredients_list:
+            st.warning("Please select at least one fruit.")
+        else:
+            cursor.execute(
+                """
+                INSERT INTO ORDERS (INGREDIENTS, NAME_ON_ORDER)
+                VALUES (%s, %s)
+                """,
+                (", ".join(ingredients_list), name_on_order.strip())
+            )
+
+            st.success(
+                f"Your smoothie is ordered, {name_on_order}!"
+            )
+
+    cursor.close()
+
+except Exception:
+    st.error("Unable to connect to the smoothie database.")
+    st.exception(Exception)
+
+# Fruit API
+st.subheader("Fruit Information")
+
+try:
+    response = requests.get(
+        "https://my.smoothiefroot.com/api/fruit/watermelon",
+        timeout=10
+    )
+    response.raise_for_status()
+    st.json(response.json())
+
+except requests.RequestException as e:
+    st.warning(f"Fruit API unavailable: {e}")
