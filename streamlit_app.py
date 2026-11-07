@@ -86,7 +86,7 @@ smoothiefroot_response = requests.get(
 smoothiefroot_response.raise_for_status()
 
 # Display API response
-st.text(smoothiefroot_response.json())
+# st.text(smoothiefroot_response.json())
 
 # Convert JSON response into a Streamlit DataFrame
 sf_df = st.dataframe(
