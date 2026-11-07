@@ -74,15 +74,22 @@ except Exception:
     st.exception(Exception)
 
 # Fruit API
-st.subheader("Fruit Information")
 
-try:
-    response = requests.get(
-        "https://my.smoothiefroot.com/api/fruit/watermelon",
-        timeout=10
-    )
-    response.raise_for_status()
-    st.json(response.json())
+# New section to display SmoothieFroot nutrition information
+import requests
 
-except requests.RequestException as e:
-    st.warning(f"Fruit API unavailable: {e}")
+smoothiefroot_response = requests.get(
+    "https://my.smoothiefroot.com/api/fruit/watermelon",
+    timeout=15
+)
+
+smoothiefroot_response.raise_for_status()
+
+# Display API response
+st.text(smoothiefroot_response.json())
+
+# Convert JSON response into a Streamlit DataFrame
+sf_df = st.dataframe(
+    data=smoothiefroot_response.json(),
+    use_container_width=True
+)
