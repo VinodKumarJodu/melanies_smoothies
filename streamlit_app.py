@@ -3,6 +3,7 @@ import streamlit as st
 import requests
 import snowflake.connector
 from urllib.parse import quote
+import pandas as pd
 
 st.set_page_config(
     page_title="Melanie's Smoothies",
