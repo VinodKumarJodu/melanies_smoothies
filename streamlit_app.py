@@ -2,36 +2,38 @@
 import streamlit as st
 import requests
 import snowflake.connector
+from urllib.parse import quote
 
 st.set_page_config(
     page_title="Melanie's Smoothies",
     page_icon="🥤",
-    layout="centered"
+    layout="wide"
 )
 
-st.title("🥤 Customize Your Smoothie")
-st.write("Choose up to five fruits for your custom smoothie.")
+st.title("🥤 Customize Your Smoothie!")
+st.write("Choose the fruits you want in your custom smoothie.")
 
-# Input fields
 name_on_order = st.text_input("Name on Smoothie:")
+st.write("The name on your Smoothie will be:", name_on_order)
 
-# Connect to Snowflake
 @st.cache_resource
 def get_snowflake_connection():
     return snowflake.connector.connect(
+        account=st.secrets["snowflake"]["account"],
         user=st.secrets["snowflake"]["user"],
         password=st.secrets["snowflake"]["password"],
-        account=st.secrets["snowflake"]["account"],
         warehouse=st.secrets["snowflake"]["warehouse"],
         database="SMOOTHIES",
         schema="PUBLIC",
         role=st.secrets["snowflake"]["role"]
     )
 
+ingredients_list = []
+
 try:
     conn = get_snowflake_connection()
-
     cursor = conn.cursor()
+
     cursor.execute("""
         SELECT FRUIT_NAME
         FROM FRUIT_OPTIONS
@@ -46,8 +48,10 @@ try:
         max_selections=5
     )
 
+    ingredients_string = " ".join(ingredients_list)
+
     if ingredients_list:
-        st.write("Selected ingredients:", ", ".join(ingredients_list))
+        st.write("Your selected ingredients:", ingredients_string)
 
     if st.button("Submit Order"):
         if not name_on_order.strip():
@@ -60,36 +64,55 @@ try:
                 INSERT INTO ORDERS (INGREDIENTS, NAME_ON_ORDER)
                 VALUES (%s, %s)
                 """,
-                (", ".join(ingredients_list), name_on_order.strip())
+                (ingredients_string, name_on_order.strip())
             )
-
-            st.success(
-                f"Your smoothie is ordered, {name_on_order}!"
-            )
+            conn.commit()
+            st.success(f"Your Smoothie is ordered, {name_on_order}!")
 
     cursor.close()
 
-except Exception:
-    st.error("Unable to connect to the smoothie database.")
-    st.exception(Exception)
+except Exception as exc:
+    st.error("Unable to connect to or query the smoothie database.")
+    st.exception(exc)
 
-# Fruit API
+# Display nutrition information for each selected fruit
+if ingredients_list:
 
-# New section to display SmoothieFroot nutrition information
-import requests
+    for fruit_chosen in ingredients_list:
 
-smoothiefroot_response = requests.get(
-    "https://my.smoothiefroot.com/api/fruit/watermelon",
-    timeout=15
-)
+        st.subheader(f"{fruit_chosen} Nutrition Information")
 
-smoothiefroot_response.raise_for_status()
+        fruit_api_url = (
+            "https://my.smoothiefroot.com/api/fruit/"
+            + quote(fruit_chosen.lower(), safe="")
+        )
 
-# Display API response
-# st.text(smoothiefroot_response.json())
+        try:
+            smoothiefroot_response = requests.get(
+                fruit_api_url,
+                timeout=15
+            )
 
-# Convert JSON response into a Streamlit DataFrame
-sf_df = st.dataframe(
-    data=smoothiefroot_response.json(),
-    use_container_width=True
-)
+            if smoothiefroot_response.status_code == 404:
+                st.info(
+                    f"{fruit_chosen} is not available "
+                    "in the SmoothieFroot database."
+                )
+                continue
+
+            smoothiefroot_response.raise_for_status()
+
+            sf_df = st.dataframe(
+                data=smoothiefroot_response.json(),
+                use_container_width=True
+            )
+
+        except requests.RequestException as exc:
+            st.warning(
+                f"Unable to retrieve {fruit_chosen} information: {exc}"
+            )
+
+        except ValueError:
+            st.warning(
+                f"Invalid JSON response for {fruit_chosen}."
+            )
